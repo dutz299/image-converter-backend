@@ -1,132 +1,152 @@
-const express = require("express");
-const multer = require("multer");
-const cors = require("cors");
-const { v4: uuidv4 } = require("uuid");
-const fs = require("fs");
-const path = require("path");
-const sharp = require("sharp");
-const archiver = require("archiver");
+import { useState } from "react";
 
-const app = express();
+const API_BASE = "https://image-converter-backend-kvz6.onrender.com";
 
-// 🔒 CORS (sicher & offen für Vercel)
-app.use(
-  cors({
-    origin: "*",
-    methods: ["GET", "POST"],
-    allowedHeaders: ["Content-Type"]
-  })
-);
+// 🔁 Social Bar (aktiv)
+const SOCIAL_BAR_SCRIPT =
+  "https://pl28339042.effectivegatecpm.com/89/f4/4d/89f44d1ee7fda7ebb0ab5a814df9d988.js";
 
-app.use(express.json());
+// 🔁 Interstitial (später eintragen)
+const INTERSTITIAL_SCRIPT = ""; // leer lassen, bis freigeschaltet
 
-// 🔴 WICHTIG für Render
-const PORT = process.env.PORT || 3001;
+function App() {
+  const [files, setFiles] = useState([]);
+  const [sessionId, setSessionId] = useState(null);
+  const [adUnlocked, setAdUnlocked] = useState(false);
 
-// ⏱ Session-Lifetime
-const SESSION_TTL_MS = 30 * 60 * 1000; // 30 Minuten
+  const [showAdOverlay, setShowAdOverlay] = useState(false);
+  const [countdown, setCountdown] = useState(14);
 
-// 📁 Upload-Ordner sicherstellen
-const uploadDir = path.join(__dirname, "uploads");
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir);
-}
+  // =====================
+  // 📤 UPLOAD
+  // =====================
+  const handleUpload = async () => {
+    const formData = new FormData();
+    files.forEach((file) => formData.append("images", file));
 
-// 🧠 Sessions (MVP – In-Memory)
-const sessions = {};
+    const res = await fetch(`${API_BASE}/upload`, {
+      method: "POST",
+      body: formData
+    });
 
-// 📤 Multer (nur JPG erlauben)
-const upload = multer({
-  dest: uploadDir,
-  fileFilter: (req, file, cb) => {
-    if (file.mimetype === "image/jpeg") {
-      cb(null, true);
-    } else {
-      cb(new Error("Nur JPG erlaubt"));
-    }
-  }
-});
-
-
-// =======================
-// 📤 UPLOAD
-// =======================
-app.post("/upload", upload.array("images", 20), (req, res) => {
-  const sessionId = uuidv4();
-
-  sessions[sessionId] = {
-    files: req.files,
-    adCompleted: false,
-    createdAt: Date.now()
+    const data = await res.json();
+    setSessionId(data.sessionId);
   };
 
-  console.log("Upload:", sessionId);
-  res.json({ sessionId });
-});
+  // =====================
+  // 🎥 WERBUNG + FREIGABE
+  // =====================
+  const watchAd = () => {
+    if (!sessionId || adUnlocked) return;
 
+    setShowAdOverlay(true);
+    setCountdown(14);
 
-// =======================
-// 🎥 WERBE-FREIGABE (MISSBRAUCHSSCHUTZ)
-// =======================
-app.post("/ad-complete", (req, res) => {
-  const { sessionId } = req.body;
-  const session = sessions[sessionId];
+    const loadScript = (src) =>
+      new Promise((resolve, reject) => {
+        const s = document.createElement("script");
+        s.src = src;
+        s.async = true;
+        s.onload = resolve;
+        s.onerror = reject;
+        document.body.appendChild(s);
+      });
 
-  if (!session) {
-    return res.status(404).json({ error: "Session not found" });
-  }
+    // 1️⃣ Interstitial versuchen (falls vorhanden)
+    const tryInterstitial = INTERSTITIAL_SCRIPT
+      ? loadScript(INTERSTITIAL_SCRIPT)
+      : Promise.reject();
 
-  // ❌ Werbung wurde bereits freigeschaltet
-  if (session.adCompleted) {
-    return res.status(429).json({ error: "Ad already completed" });
-  }
+    // 2️⃣ Fallback → Social Bar
+    tryInterstitial.catch(() => loadScript(SOCIAL_BAR_SCRIPT));
 
-  session.adCompleted = true;
-  res.json({ success: true });
-});
+    // Countdown
+    const interval = setInterval(() => {
+      setCountdown((c) => c - 1);
+    }, 1000);
 
+    // Nach 14 Sekunden freischalten
+    setTimeout(async () => {
+      clearInterval(interval);
 
-// =======================
-// 🔄 KONVERTIERUNG + ZIP
-// =======================
-app.get("/convert/:sessionId", async (req, res) => {
-  const { sessionId } = req.params;
-  const session = sessions[sessionId];
+      await fetch(`${API_BASE}/ad-complete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId })
+      });
 
-  if (!session) {
-    return res.status(404).json({ error: "Session not found" });
-  }
+      setAdUnlocked(true);
+      setShowAdOverlay(false);
+    }, 14000);
+  };
 
-  if (!session.adCompleted) {
-    return res.status(403).json({ error: "Ad not completed" });
-  }
+  return (
+    <div style={{ padding: 40 }}>
+      <h1>Image Converter</h1>
 
-  res.setHeader("Content-Type", "application/zip");
-  res.setHeader(
-    "Content-Disposition",
-    "attachment; filename=converted_images.zip"
+      <input
+        type="file"
+        multiple
+        accept="image/jpeg"
+        onChange={(e) => setFiles([...e.target.files])}
+      />
+
+      <br />
+      <br />
+
+      <button onClick={handleUpload} disabled={files.length === 0}>
+        Dateien hochladen
+      </button>
+
+      <br />
+      <br />
+
+      <button onClick={watchAd} disabled={!sessionId || adUnlocked}>
+        Werbung ansehen & freischalten
+      </button>
+
+      <br />
+      <br />
+
+      <button
+        disabled={!adUnlocked}
+        onClick={() =>
+          (window.location.href = `${API_BASE}/convert/${sessionId}`)
+        }
+      >
+        Konvertierung starten
+      </button>
+
+      {/* 🔒 Ad Overlay */}
+      {showAdOverlay && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.8)",
+            color: "#fff",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999
+          }}
+        >
+          <div style={{ textAlign: "center", maxWidth: 420 }}>
+            <h2>Bitte kurze Werbung ansehen</h2>
+            <p>Dein Download wird danach freigeschaltet.</p>
+
+            <div style={{ fontSize: 36, margin: "20px 0" }}>
+              {countdown > 0 ? countdown : "✔"}
+            </div>
+
+            <p style={{ fontSize: 12, opacity: 0.8 }}>
+              Falls keine Werbung erscheint, bitte kurz den Adblocker deaktivieren.
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
   );
+}
 
-  const archive = archiver("zip", { zlib: { level: 9 } });
-  archive.pipe(res);
-
-  for (const file of session.files) {
-    const outputName = file.originalname.replace(/\.jpe?g$/i, ".png");
-    const buffer = await sharp(file.path).png().toBuffer();
-    archive.append(buffer, { name: outputName });
-  }
-
-  await archive.finalize();
-});
-
-
-// =======================
-// 🧹 AUTO-CLEANUP
-// =======================
-function cleanupSessions() {
-  const now = Date.now();
-
-  for (const [sessionId, session] of Object.entries(sessions)) {
-    if (now - session.createdAt > SESSION_TTL_MS) {
-      for (const file of session.files) {
-        fs.unlink(file.path, () => {});
+export default App;
