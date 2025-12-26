@@ -8,7 +8,16 @@ const sharp = require("sharp");
 const archiver = require("archiver");
 
 const app = express();
-app.use(cors());
+
+// 🔒 CORS (sicher & offen für Vercel)
+app.use(
+  cors({
+    origin: "*",
+    methods: ["GET", "POST"],
+    allowedHeaders: ["Content-Type"]
+  })
+);
+
 app.use(express.json());
 
 // 🔴 WICHTIG für Render
@@ -57,16 +66,22 @@ app.post("/upload", upload.array("images", 20), (req, res) => {
 
 
 // =======================
-// 🎥 WERBE-FREIGABE
+// 🎥 WERBE-FREIGABE (MISSBRAUCHSSCHUTZ)
 // =======================
 app.post("/ad-complete", (req, res) => {
   const { sessionId } = req.body;
+  const session = sessions[sessionId];
 
-  if (!sessions[sessionId]) {
+  if (!session) {
     return res.status(404).json({ error: "Session not found" });
   }
 
-  sessions[sessionId].adCompleted = true;
+  // ❌ Werbung wurde bereits freigeschaltet
+  if (session.adCompleted) {
+    return res.status(429).json({ error: "Ad already completed" });
+  }
+
+  session.adCompleted = true;
   res.json({ success: true });
 });
 
@@ -115,19 +130,3 @@ function cleanupSessions() {
     if (now - session.createdAt > SESSION_TTL_MS) {
       for (const file of session.files) {
         fs.unlink(file.path, () => {});
-      }
-      delete sessions[sessionId];
-      console.log("Session gelöscht:", sessionId);
-    }
-  }
-}
-
-setInterval(cleanupSessions, 5 * 60 * 1000);
-
-
-// =======================
-// 🚀 SERVER START
-// =======================
-app.listen(PORT, () => {
-  console.log(`Backend läuft auf Port ${PORT}`);
-});
